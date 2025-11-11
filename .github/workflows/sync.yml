@@ -5,7 +5,7 @@ permissions:
 
 on:
   schedule:
-    - cron: '0 16 * * *' # 每天UTC时间16点（北京时间0点）同步一次
+    - cron: '0 16 * * *' # 每天UTC时间16点（北京时间零点）自动同步
   workflow_dispatch:  # 允许手动触发
 
 jobs:
@@ -24,7 +24,12 @@ jobs:
       - name: Backup sync workflow
         run: |
           mkdir -p /tmp/workflow_backup
-          cp .github/workflows/sync.yaml /tmp/workflow_backup/sync.yaml
+          # 若本地不存在，则用 workflow 自身的源码路径备份
+          if [ -f .github/workflows/sync.yaml ]; then
+            cp .github/workflows/sync.yaml /tmp/workflow_backup/sync.yaml
+          else
+            cp ${{ github.workflow }} /tmp/workflow_backup/sync.yaml || echo "Backup from workflow context skipped."
+          fi
 
       - name: Set up git config
         run: |
