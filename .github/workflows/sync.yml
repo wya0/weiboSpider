@@ -1,47 +1,64 @@
 name: Sync Fork
 
 permissions:
-    contents: write
+  contents: write
 
 on:
-    schedule:
-        - cron: '0 16 * * *' # 每天UTC时间16点（即北京时间凌晨0点）同步一次
-    workflow_dispatch:  # 允许手动触发
+  schedule:
+    - cron: '0 16 * * *' # 每天UTC时间16点（即北京时间凌晨0点）同步一次
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
-    sync_with_upstream:
-        name: Sync with Upstream
-        runs-on: ubuntu-latest
-        if: ${{ github.event.repository.fork }}
+  sync_with_upstream:
+    name: Sync with Upstream
+    runs-on: ubuntu-latest
+    if: ${{ github.event.repository.fork }}
 
-        steps:
-            - name: Checkout target repo
-              uses: actions/checkout@v4
-              with:
-                token: ${{ secrets.GITHUB_TOKEN }}
-                fetch-depth: 0
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
-            - name: Sync Upstream
-              uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
-              with:
-                  target_repo_token: ${{ secrets.GITHUB_TOKEN }} # 使用Github自动生成的Token
-                  
-                  upstream_sync_repo: dataabc/weiboSpider # 替换为上游仓库，如：torvalds/linux
-                  upstream_sync_branch: master
-                  target_sync_branch: master
-                  
-                  test_mode: false
+      - name: Set up git config
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
 
-            - name: Check for new commits
-              if: success()
-              run: echo "Sync completed successfully"
+      - name: Add upstream and fetch
+        run: |
+          git remote add upstream https://github.com/dataabc/weiboSpider.git
+          git fetch upstream
 
-            - name: Check for Failure
-              if: failure()
-              run: |
-                  echo "[Error] Sync failed. This might be due to:"
-                  echo "1. Changes in the upstream workflow file"
-                  echo "2. Merge conflicts that need manual resolution"
-                  echo "3. Network issues"
-                  echo "Please check the logs and consider manual sync if needed."
-                  exit 1
+      - name: Hard reset to upstream/master and restore workflow
+        run: |
+          # 强制让master完全与upstream一致（会覆盖/删除本地所有不同的文件！）
+          git checkout master
+          git reset --hard upstream/master
+
+          # 保留 sync.yaml 工作流
+          mkdir -p .github/workflows
+          cp $GITHUB_WORKSPACE/.github/workflows/sync.yaml .github/workflows/sync.yaml
+
+          # 提交恢复后的 workflow（不会有变更就不会提交）
+          git add .github/workflows/sync.yaml
+          git commit -m "Restore sync workflow after upstream sync" || echo "No changes to commit"
+
+      - name: Push to origin master (force)
+        run: |
+          git push origin master --force
+
+      - name: Check for successful sync
+        if: success()
+        run: echo "Sync completed successfully and workflow restored."
+
+      - name: Check for Failure
+        if: failure()
+        run: |
+          echo "[Error] Sync failed. This might be due to:"
+          echo "1. Changes in the upstream workflow file"
+          echo "2. Merge conflicts that need manual resolution"
+          echo "3. Network issues"
+          echo "Please check the logs and consider manual sync if needed."
+          exit 1
